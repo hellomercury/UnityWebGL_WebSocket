@@ -1,69 +1,47 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using LitJson;
 using Net;
 using UnityEngine;
-using UnityEngine.Profiling;
 
 public class Test : MonoBehaviour
 {
-
-    // Use this for initialization
-    void Start()
+    void OnGUI()
     {
-        Stopwatch sp = new Stopwatch();
-        sp.Start();
-        Profiler.BeginSample("<----------------------------->");
+        GUI.skin.button.fontSize = 64;
 
-        for (int i = 0; i < 10000; ++i)
+        if (GUILayout.Button("QDataUpdate"))
         {
-            NetProtocolEnum.Q3RDAuthWebGL.ToString();
+            JsonData updateData = new JsonData();
+            updateData["photo"] = "www.baidu.com";
+            updateData["player_name"] = "szn";
+            JsonData friendsArray = new JsonData();
+            friendsArray.Add(new JsonData());
+            updateData["friends"] = friendsArray;
+            
+            NetDispatcher.Instance.RegisterNetEvent(NetProtocolEnum.QDataUpdate,
+                (result, data) =>
+                {
+                   Debug.LogError("Resp QDataUpdate msg = " + result + "\n" + data.ToJson());
+                });
+            NetManager.Instance.Request(NetProtocolEnum.QDataUpdate, updateData);
         }
-        Profiler.EndSample();
-        sp.Stop();
-        UnityEngine.Debug.LogError(sp.ElapsedMilliseconds);
 
-        Stopwatch sp1 = new Stopwatch();
-        sp1.Start();
-        Profiler.BeginSample(">-----------------------------<");
-        for (int i = 0; i < 10000; ++i)
+        if (GUILayout.Button("QCustomsDataPut"))
         {
-            NetProtocolEnum.Q3RDAuthWebGL.ToCurString();
+            JsonData cusData = new JsonData();
+            cusData["gold"] = 10000;
+            cusData["score"] = 10001;
+            cusData["world"] = 10002;
+            cusData["sub_world"] = 10003;
+            cusData["level"] = 10004;
+
+            NetDispatcher.Instance.RegisterNetEvent(NetProtocolEnum.QCustomsDataPut,
+                (result, data) =>
+                {
+                    Debug.LogError("Resp QCustomsDataPut msg = " + result + "\n" + data);
+                });
+            NetManager.Instance.Request(NetProtocolEnum.QCustomsDataPut, cusData);
         }
-        Profiler.EndSample();
-        sp1.Stop();
-        UnityEngine.Debug.LogError(sp1.ElapsedMilliseconds);
 
-    }
-
-
-
-    // Update is called once per frame
-    void Update()
-    {
-
-    }
-}
-
-public static class co
-{
-    public static string ToCurString(this NetProtocolEnum InNetProtocolEnum)
-    {
-        switch (InNetProtocolEnum)
-        {
-            case NetProtocolEnum.Q3RDAuthWebGL:
-                return "Q3RDAuthWebGL";
-            case NetProtocolEnum.Q3RDWSEnter:
-                return "Q3RDWSEnter";
-            case NetProtocolEnum.QDataUpdate:
-                return "QDataUpdate";
-            case NetProtocolEnum.QCustomsDataPut:
-                return "QCustomsDataPut";
-            case NetProtocolEnum.QPing:
-                return "QPing";
-            default:
-                return "";
-        }
     }
 }
+

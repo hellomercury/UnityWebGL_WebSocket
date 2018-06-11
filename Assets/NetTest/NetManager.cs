@@ -200,9 +200,7 @@ namespace Net
 
             return topMsg;
         }
-
-
-
+        
         private void ClearQueue()
         {
             if (netMsgQueue.Count > 0) netMsgQueue.Clear();
@@ -210,7 +208,7 @@ namespace Net
         #endregion
 
         #region State
-        private int retryTime = 0;
+        private int retryTime;
         private enum SocketState
         {
             UnOpened,
@@ -310,8 +308,7 @@ namespace Net
                     webSocket.OnClosed += OnWebSocketClosed;
 
                     UpdateSocketState(SocketState.Idle);
-
-
+                    
                     NetDispatcher.Instance.RegisterNetEvent(NetProtocolEnum.Q3RDWSEnter, StartHeartbeat);
                     EnterGame();
                 };
