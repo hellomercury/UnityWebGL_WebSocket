@@ -87,6 +87,8 @@ namespace Net
         public const int HEART_BEAT_MSG_CODE_I = -1;
         public const int HEART_BEAT_SPACE_TIME_I = 1 * 45;
 
+        public const int RECONNECT_SOCKET_WAIT_TIME_I = 3;
+
         public const string NET_BACK_SUCCEED_CODE_S = "0";
     }
 

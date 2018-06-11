@@ -45,6 +45,23 @@ namespace Net
             StartGame();
         }
 
+        void OnApplicationQuit()
+        {
+            switch (socketState)
+            {
+                case SocketState.Opened:
+                case SocketState.Idle:
+                case SocketState.Busy:
+                case SocketState.TimeOut:
+                    socketState = SocketState.Closed;
+                    StopHeartbeat();
+                    if (IsInvoking("Connect")) CancelInvoke("Connect");
+                    if (null != webSocket && webSocket.IsOpen) webSocket.Close();
+                    webSocket = null;
+                    break;
+            }
+        }
+
         public void StartGame()
         {
             netMsgQueue = new Queue<NetMsg>(NetConfig.MAX_CACHE_NET_MSG_COUNT_USHORT);
@@ -159,6 +176,7 @@ namespace Net
         }
 
         #region Client
+
         /// <summary>
         /// 不需要把协议名加入到InProtocolData中，NetMsg类会自动添加name字段
         /// </summary>
@@ -168,14 +186,13 @@ namespace Net
         {
             Enqueue(new NetMsg(InNetProtocolEnum, InProtocolData));
         }
+
         #endregion
 
         #region MsgQueue
 
         private void Enqueue(NetMsg InMsg)
         {
-            Debug.Log("[Socket Utility]    消息入队 = " + InMsg);
-
             netMsgQueue.Enqueue(InMsg);
 
             UpdateMsgState();
@@ -183,8 +200,6 @@ namespace Net
 
         private void Requeue(NetMsg InMsg)
         {
-            Debug.Log("[Socket Utility]    消息重新入队 = " + InMsg);
-
             InMsg.Reset();
 
             netMsgQueue.Enqueue(InMsg);
@@ -194,21 +209,20 @@ namespace Net
         {
             NetMsg topMsg = netMsgQueue.Dequeue();
 
-            Debug.Log("[Socket Utility]    消息出队 = " + topMsg);
-
-            UpdateMsgState();
-
             return topMsg;
         }
-        
+
         private void ClearQueue()
         {
             if (netMsgQueue.Count > 0) netMsgQueue.Clear();
         }
+
         #endregion
 
         #region State
+
         private int retryTime;
+
         private enum SocketState
         {
             UnOpened,
@@ -224,26 +238,31 @@ namespace Net
 
         private void UpdateMsgState()
         {
-            Debug.Log("[Socket Utility]    UpdateMsgState = " + socketState);
             if (socketState == SocketState.Idle)
             {
                 if (netMsgQueue.Count > 0)
                 {
                     NetMsg topMsg = netMsgQueue.Peek();
-                    if (!topMsg.WhetherWaiting)
+
+                    if (topMsg.WhetherWaiting)
                     {
-                        if (!topMsg.SendToSocket(webSocket))
+                        Debug.Log("[Socket Utility]    Waiting = " + topMsg);
+                    }
+                    else
+                    {
+                        if (topMsg.SendToSocket(webSocket))
                         {
-                            Debug.Log("[Socket Utility]    重试超时 = " + topMsg);
+                            Debug.Log("[Socket Utility]    Req = " + topMsg);
+
+                            UpdateSocketState(SocketState.Busy);
+                        }
+                        else
+                        {
+                            Debug.Log("[Socket Utility]    Timeout = " + topMsg);
                             Requeue(netMsgQueue.Dequeue());
 
                             UpdateSocketState(SocketState.TimeOut);
                         }
-                        else UpdateSocketState(SocketState.Busy);
-                    }
-                    else
-                    {
-                        Debug.Log("[Socket Utility]    等待返回 = " + topMsg);
                     }
                 }
             }
@@ -252,40 +271,45 @@ namespace Net
 
         private void UpdateSocketState(SocketState InSocketState)
         {
-            socketState = InSocketState;
-            switch (InSocketState)
+            if (Application.isPlaying)
             {
-                case SocketState.Opened:
-                    UpdateSocketState(SocketState.Idle);
-                    retryTime = 0;
-                    break;
+                Debug.Log("[Socket Utility]    UpdateSocketState = " + InSocketState);
 
-                case SocketState.Idle:
-                    UpdateMsgState();
-                    break;
-                    
-                case SocketState.TimeOut:
-                case SocketState.Error:
-                    ReConnect();
-                    break;
+                socketState = InSocketState;
+                switch (InSocketState)
+                {
+                    case SocketState.Opened:
+                        UpdateSocketState(SocketState.Idle);
+                        retryTime = 0;
+                        break;
 
-                case SocketState.Closed:
-                    if(Application.isPlaying) ReConnect();
-                    break;
+                    case SocketState.Idle:
+                        UpdateMsgState();
+                        break;
+
+                    case SocketState.TimeOut:
+                    case SocketState.Error:
+                    case SocketState.Closed:
+                        ReConnect();
+                        break;
+                }
             }
-
-            Debug.Log("[Socket Utility]    UpdateSocketState = " + InSocketState);
         }
 
         private void ReConnect()
         {
             if (retryTime < NetConfig.MAX_RETRY_TIMES_USHORT)
             {
-                OpenSocket(socketUri);
+                Invoke("Connect", NetConfig.RECONNECT_SOCKET_WAIT_TIME_I);
 
                 ++retryTime;
             }
             else Debug.LogError("Net Disconnection.");
+        }
+
+        private void Connect()
+        {
+            OpenSocket(socketUri);
         }
 
         #endregion
@@ -297,18 +321,18 @@ namespace Net
             Debug.Log("[Socket Utility]    EnterGame = " + (webSocket == null || webSocket.IsOpen));
             if (webSocket == null || !webSocket.IsOpen)
             {
-                Debug.Log("[Socket Utility]    连接Socket.");
+                Debug.Log("[Socket Utility]    Open socket.");
                 WebSocket socket = new WebSocket(InUri);
                 socket.OnOpen += openSocket =>
                 {
-                    Debug.Log("[Socket Utility]    连接Socket成功.");
+                    Debug.Log("[Socket Utility]    Open socket succeed.");
                     webSocket = openSocket;
                     webSocket.OnBinary += OnBinaryMsgReceived;
                     webSocket.OnError += OnWebSocketError;
                     webSocket.OnClosed += OnWebSocketClosed;
 
                     UpdateSocketState(SocketState.Idle);
-                    
+
                     NetDispatcher.Instance.RegisterNetEvent(NetProtocolEnum.Q3RDWSEnter, StartHeartbeat);
                     EnterGame();
                 };
@@ -321,13 +345,14 @@ namespace Net
         private void OnBinaryMsgReceived(WebSocket InWebSocket, byte[] InBinaryData)
         {
             string oriMsg = Encoding.Default.GetString(InBinaryData);
-            Debug.Log("[Socket Utility]    收到服务器消息 = " + oriMsg);
 
             JsonData oriJson = JsonMapper.ToObject(oriMsg);
             int msgKey = Convert.ToInt32(oriJson["echo"].ToJson());
 
             if (msgKey > 0)
             {
+                Debug.Log("[Socket Utility]    Resp = " + oriMsg);
+
                 if (netMsgQueue.Count > 0)
                 {
                     if (netMsgQueue.Peek().Key == msgKey)
@@ -335,6 +360,9 @@ namespace Net
                         string code = oriJson["code"].ToString();
 
                         NetMsg msg = Dequeue();
+
+                        UpdateSocketState(SocketState.Idle);
+
                         switch (code)
                         {
                             case NetConfig.NET_BACK_SUCCEED_CODE_S:
@@ -363,10 +391,10 @@ namespace Net
         {
             string errorMsg = string.Empty;
 #if !UNITY_WEBGL
-                if (InWebSocket.InternalRequest.Response != null)
-                {
-                    errorMsg = "Status Code from Server: " + InWebSocket.InternalRequest.Response.StatusCode + "\nMessage: " + InWebSocket.InternalRequest.Response.Message + "\n";
-                }
+            if (InWebSocket.InternalRequest.Response != null)
+            {
+                errorMsg = "Status Code from Server: " + InWebSocket.InternalRequest.Response.StatusCode + "\nMessage: " + InWebSocket.InternalRequest.Response.Message + "\n";
+            }
 #else
             errorMsg += "-An error occured: " + (null == InException ? "Unknown Error!" : InException.Message) + "\n" + errorMsg;
 #endif
@@ -403,7 +431,7 @@ namespace Net
 
         public void StartHeartbeat()
         {
-            Debug.Log("[Socket Utility]    开启心跳.");
+            Debug.Log("[Socket Utility]    Start Heartbeat.");
 
             InvokeRepeating("Heartbeat", 0, NetConfig.HEART_BEAT_SPACE_TIME_I);
 
@@ -415,22 +443,30 @@ namespace Net
 
         void ReceiveHeartBeatMsg(JsonData InJsonDataArray)
         {
-            Debug.Log("[Socket Utility]    心跳返回.");
+            Debug.Log("[Socket Utility]    Receive HeartBeat Msg = " + InJsonDataArray.ToJson());
         }
 
         private void Heartbeat()
         {
-            //if (isSocketLoopAlreadyOpen)
+            switch (socketState)
             {
-                Debug.Log("[Socket Utility]    发送心跳.");
-                webSocket.Send(heartReqData);
-            }
-            //else
-            {
-                Debug.Log("[Socket Utility]    网络断开.");
+                case SocketState.Idle:
+                    Debug.Log("[Socket Utility]    Heartbeat.");
+                    webSocket.Send(heartReqData);
+                    break;
+
+                case SocketState.TimeOut:
+                case SocketState.Error:
+                case SocketState.Closed:
+                    ReConnect();
+                    break;
             }
         }
 
+        private void StopHeartbeat()
+        {
+            if (IsInvoking("Heartbeat")) CancelInvoke("Heartbeat");
+        }
         #endregion
     }
 }

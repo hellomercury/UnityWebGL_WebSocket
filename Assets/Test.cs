@@ -37,7 +37,7 @@ public class Test : MonoBehaviour
             NetDispatcher.Instance.RegisterNetEvent(NetProtocolEnum.QCustomsDataPut,
                 (result, data) =>
                 {
-                    Debug.LogError("Resp QCustomsDataPut msg = " + result + "\n" + data);
+                    Debug.LogError("Resp QCustomsDataPut msg = " + result + "\n" + data.ToJson());
                 });
             NetManager.Instance.Request(NetProtocolEnum.QCustomsDataPut, cusData);
         }
